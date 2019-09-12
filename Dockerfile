@@ -1,8 +1,8 @@
 FROM ubuntu:18.04
 
-# Build hicn suite (from source for disabling punting)
-
 WORKDIR /hicn
+
+SHELL ["/bin/bash", "-c"]
 
 # sysrepo plugin
 #ENV HICN_SYSREPO_DEB=hicn-extra-plugin_19.08-6-release_amd64.deb
@@ -11,7 +11,6 @@ WORKDIR /hicn
 ARG DEBIAN_FRONTEND=noninteractive
 
 # Use bash shell
-SHELL ["/bin/bash", "-c"]
 
 RUN apt-get update && apt-get update && apt-get install -y curl
 RUN curl -s https://packagecloud.io/install/repositories/fdio/release/script.deb.sh | bash
@@ -32,18 +31,47 @@ RUN apt-get install -y git cmake build-essential libpcre3-dev swig dh-autoreconf
     && apt-get install -y autoconf automake libtool make libreadline-dev texinfo \
     pkg-config libpam0g-dev libjson-c-dev bison flex python3-pytest \
     libc-ares-dev python3-dev libsystemd-dev python-ipaddress python3-sphinx \
-    install-info libsnmp-dev perl libnuma-dev lshw pciutils tcpdump vim iputils-ping \
+    install-info libsnmp-dev perl libnuma-dev lshw pciutils tcpdump vim iputils-ping supervisor \
   ###############################################                                               \
   # Build libyang from source                                                                   \
   ################################################                                              \
   && git clone https://github.com/CESNET/libyang                                                \
   && mkdir -p libyang/build                                                                     \
-  && pushd libyang/build && cmake -DENABLE_LYD_PRIV=ON -D CMAKE_BUILD_TYPE:String="Release" -DCMAKE_INSTALL_PREFIX=/usr .. && make -j 4 install && popd   \
+  && cd libyang/build && cmake -DENABLE_LYD_PRIV=ON -D CMAKE_BUILD_TYPE:String="Release" -DCMAKE_INSTALL_PREFIX=/usr .. && make -j 4 install && cd /   \
   ##############################################                                                 \
   #  Install hicn router  and hicn plugin                                                        \
   ##############################################                                                 \
   && apt-get install hicn-extra-plugin                                                           \
   && apt-get install hicn-plugin                                                                  \
+  ########################################################################################      \
+  # Build sysrepo from source                                                                   \
+  ########################################################################################      \
+  && git clone https://github.com/sysrepo/sysrepo.git                                           \
+  && mkdir -p sysrepo/build                                                                     \
+  && pushd sysrepo/build && cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr ..     \
+  && make -j 4 install && popd                                                                  \
+  ############################################################                                  \
+  # Build libnetconf2 from source                                                               \
+  ############################################################                                  \
+  && git clone https://github.com/CESNET/libnetconf2                                            \
+  && mkdir -p libnetconf2/build                                                                 \
+  && pushd libnetconf2/build && cmake -DCMAKE_INSTALL_PREFIX=/usr .. && make -j4 install && popd\
+  ############################################################                                  \
+  # Build Netopeer                                                                              \
+  ############################################################                                  \
+  && git clone https://github.com/CESNET/Netopeer2                                              \
+  && mkdir -p Netopeer2/server/build                                                            \
+  && pushd Netopeer2/server/build && cmake -DCMAKE_INSTALL_PREFIX=/usr ..                       \
+  && make -j 4 install && popd                                                                  \
+  ############################################################                                  \
+  # Build libmemif                                                                              \
+  ############################################################                                  \
+  && git clone https://gerrit.fd.io/r/vpp                                                       \
+  && pushd vpp && git checkout origin/stable/1904                                               \
+  && pushd extras/libmemif                                                                      \
+  && mkdir build && pushd build                                                                 \
+  && cmake ../ -DCMAKE_INSTALL_PREFIX=/usr                                                      \
+  && make -j4 install && popd && popd && popd                                                   \
   ################################################                                          \
   #  Install hicn sysrepo plugin                                                                 \
   ###############################################                                               \
@@ -79,8 +107,5 @@ RUN apt-get install -y git cmake build-essential libpcre3-dev swig dh-autoreconf
   && sed -i 's/ospfd=no/ospfd=yes/g' /etc/frr/daemons                                           \
   && sed -i 's/ospf6d=no/ospf6d=yes/g' /etc/frr/daemons                                         \
   && sed -i 's/bgpd=no/bgpd=yes/g' /etc/frr/daemons
-WORKDIR /hicn
-WORKDIR /tmp
-COPY init.sh .
-WORKDIR /
-CMD ["/tmp/init.sh"]
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+CMD ["/usr/bin/supervisord","-c","/etc/supervisor/conf.d/supervisord.conf"]
